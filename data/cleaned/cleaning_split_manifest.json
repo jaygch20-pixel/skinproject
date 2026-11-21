@@ -1,0 +1,103 @@
+{
+    "target_size": [
+        224,
+        224
+    ],
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15,
+    "splits": {
+        "train": {
+            "benign": 3842,
+            "malignant": 3557
+        },
+        "val": {
+            "benign": 823,
+            "malignant": 762
+        },
+        "test": {
+            "benign": 824,
+            "malignant": 763
+        }
+    },
+    "exact_duplicate_files_removed": 22,
+    "near_duplicate_files_removed": 12,
+    "near_duplicate_pairs": [
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\test\\malignant\\melanoma_10327.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_6165.jpg",
+            "phash_hamming_distance": 4,
+            "ssim": 0.984213
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_5682.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8624.jpg",
+            "phash_hamming_distance": 2,
+            "ssim": 0.990104
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8726.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8730.jpg",
+            "phash_hamming_distance": 0,
+            "ssim": 0.995136
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8722.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8738.jpg",
+            "phash_hamming_distance": 2,
+            "ssim": 0.987206
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8645.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8792.jpg",
+            "phash_hamming_distance": 0,
+            "ssim": 0.993618
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_6800.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8943.jpg",
+            "phash_hamming_distance": 0,
+            "ssim": 0.994296
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8570.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8957.jpg",
+            "phash_hamming_distance": 0,
+            "ssim": 0.993695
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_7948.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8965.jpg",
+            "phash_hamming_distance": 1,
+            "ssim": 0.99325
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8414.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8969.jpg",
+            "phash_hamming_distance": 0,
+            "ssim": 0.993556
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8472.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8984.jpg",
+            "phash_hamming_distance": 0,
+            "ssim": 0.994062
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8352.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8992.jpg",
+            "phash_hamming_distance": 1,
+            "ssim": 0.993381
+        },
+        {
+            "representative": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8337.jpg",
+            "duplicate": "C:\\Users\\hp\\Desktop\\skinproject\\archive\\archive\\melanoma_cancer_dataset\\train\\malignant\\melanoma_8993.jpg",
+            "phash_hamming_distance": 3,
+            "ssim": 0.992913
+        }
+    ],
+    "near_duplicate_detection": {
+        "phash_hamming_max": 4,
+        "ssim_min": 0.98
+    }
+}

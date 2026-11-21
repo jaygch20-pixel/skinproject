@@ -1,0 +1,23 @@
+{
+    "classes": [
+        "benign",
+        "malignant"
+    ],
+    "before_balancing": {
+        "benign": 3842,
+        "malignant": 3557
+    },
+    "after_balancing": {
+        "benign": 3842,
+        "malignant": 3842
+    },
+    "augmented_samples_added": {
+        "benign": 0,
+        "malignant": 285
+    },
+    "class_weights": {
+        "benign": 0.9629,
+        "malignant": 1.0401
+    },
+    "imbalance_ratio_before": 1.0801
+}

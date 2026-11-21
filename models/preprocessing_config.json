@@ -1,0 +1,37 @@
+{
+    "model_architecture": "ResNet18",
+    "input_size": [
+        3,
+        224,
+        224
+    ],
+    "normalization": {
+        "mean": [
+            0.485,
+            0.456,
+            0.406
+        ],
+        "std": [
+            0.229,
+            0.224,
+            0.225
+        ]
+    },
+    "color_space": "RGB",
+    "interpolation": "LANCZOS",
+    "training_epochs": 5,
+    "batch_size": 32,
+    "optimizer": "Adam",
+    "initial_lr": 0.0003,
+    "initialization_mode": "Kaiming He Initialized (Offline Standalone)",
+    "best_val_accuracy": 0.9016,
+    "best_val_loss": 0.2271,
+    "training_run_duration_seconds": 6447.4,
+    "resumed_after_epoch": 1,
+    "optimizer_state_restored": false,
+    "test_accuracy": 0.8948,
+    "test_sensitivity": 0.8873,
+    "test_specificity": 0.9017,
+    "test_roc_auc": 0.965,
+    "evaluation_dataset": "data\\balanced\\test"
+}

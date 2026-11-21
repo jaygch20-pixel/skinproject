@@ -1,0 +1,39 @@
+{
+    "epoch": [
+        2,
+        3,
+        4,
+        5
+    ],
+    "train_loss": [
+        0.3428,
+        0.2994,
+        0.2678,
+        0.2524
+    ],
+    "train_acc": [
+        0.855,
+        0.8732,
+        0.889,
+        0.8976
+    ],
+    "val_loss": [
+        0.2825,
+        0.2595,
+        0.2271,
+        0.2353
+    ],
+    "val_acc": [
+        0.8808,
+        0.8946,
+        0.9016,
+        0.8978
+    ],
+    "learning_rate": [
+        0.0003,
+        0.0003,
+        0.00015,
+        0.00015
+    ],
+    "history_note": "Epoch 1 checkpoint was resumed, but its original training metrics were not saved. This history contains measured metrics for the resumed epochs only."
+}
