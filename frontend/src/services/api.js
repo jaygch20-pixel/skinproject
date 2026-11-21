@@ -1,6 +1,9 @@
 import axios from "axios";
 
-const API_BASE_URL = window.__API_BASE_URL__ || "/api";
+const API_BASE_URL =
+  window.__API_BASE_URL__ ||
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? "/api" : "https://skinproject-lpnv.onrender.com/api");
 const api = axios.create({ baseURL: API_BASE_URL });
 
 api.interceptors.response.use(undefined, (error) => {
