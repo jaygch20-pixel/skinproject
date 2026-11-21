@@ -96,6 +96,15 @@ def test_predict_with_file_upload():
     assert "ar_cv_overlay" in data
     assert "bounding_box" in data["ar_cv_overlay"]
     assert "ar_overlay_data_url" in data["ar_cv_overlay"]
+    visualizations = data["segmentation_visualizations"]
+    assert set(visualizations) == {
+        "original_image",
+        "preprocessed_cnn_input",
+        "binary_mask",
+        "boundary_overlay",
+        "segmented_image"
+    }
+    assert all(value.startswith("data:image/") for value in visualizations.values())
     assert "medical_safety_disclaimer" in data
     print(f"[PASS] POST /api/predict (File Upload) verified: Predicted {data['predicted_category']} with {data['confidence_percentage']}% confidence.")
 

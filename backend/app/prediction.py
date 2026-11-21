@@ -10,8 +10,8 @@ import torch
 import torch.nn as nn
 
 from app.model import SkinModelManager
-from app.preprocessing import decode_image_bytes, decode_base64_image, preprocess_for_model
-from app.utils.cv_ar import analyze_skin_and_lesion
+from app.preprocessing import decode_image_bytes, decode_base64_image, preprocess_for_model, get_preprocessed_preview
+from app.utils.cv_ar import analyze_skin_and_lesion, pil_to_png_data_url, pil_to_jpeg_data_url
 
 MEDICAL_DESCRIPTIONS = {
     "benign": {
@@ -82,6 +82,14 @@ class PredictionService:
             predicted_class=predicted_class,
             confidence=confidence
         )
+        preprocessed_preview = get_preprocessed_preview(pil_img)
+        segmentation_visualizations = {
+            "original_image": pil_to_png_data_url(pil_img),
+            "preprocessed_cnn_input": pil_to_png_data_url(preprocessed_preview),
+            "binary_mask": cv_result["binary_mask_data_url"],
+            "boundary_overlay": cv_result["boundary_overlay_data_url"],
+            "segmented_image": cv_result["segmented_image_data_url"]
+        }
         
         desc_info = MEDICAL_DESCRIPTIONS.get(predicted_class, {
             "title": f"Category: {predicted_class.capitalize()}",
@@ -104,6 +112,7 @@ class PredictionService:
                 "recommendation": desc_info["recommendation"]
             },
             "ar_cv_overlay": cv_result,
+            "segmentation_visualizations": segmentation_visualizations,
             "medical_safety_disclaimer": (
                 "IMPORTANT MEDICAL NOTICE: This system is an academic research and engineering prototype "
                 "developed for educational and technological demonstration purposes. It is NOT an FDA/CE cleared "

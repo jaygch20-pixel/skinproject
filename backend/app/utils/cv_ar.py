@@ -11,6 +11,17 @@ import cv2
 import numpy as np
 from PIL import Image
 
+def pil_to_jpeg_data_url(pil_image, quality=92):
+    rgb = pil_image.convert("RGB")
+    _, buffer = cv2.imencode(".jpg", cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR),
+                              [cv2.IMWRITE_JPEG_QUALITY, quality])
+    return "data:image/jpeg;base64," + base64.b64encode(buffer).decode("utf-8")
+
+def pil_to_png_data_url(pil_image):
+    rgb = pil_image.convert("RGB")
+    _, buffer = cv2.imencode(".png", cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR))
+    return "data:image/png;base64," + base64.b64encode(buffer).decode("utf-8")
+
 def analyze_skin_and_lesion(
     pil_image: Image.Image,
     predicted_class: Optional[str] = None,
@@ -124,12 +135,25 @@ def analyze_skin_and_lesion(
             "contour_shape_heuristic": "More circular" if circularity > 0.65 else "Less circular"
         }
     else:
-        # Fallback approximate targeting zone around the center
-        cw, ch = int(width * 0.45), int(height * 0.45)
-        cx, cy = int((width - cw) / 2), int((height - ch) / 2)
-        bbox = {"x": cx, "y": cy, "width": cw, "height": ch}
-        normalized_bbox = {"x": round(cx/width, 4), "y": round(cy/height, 4), "width": round(cw/width, 4), "height": round(ch/height, 4)}
         morphology = {}
+
+    lesion_mask = np.zeros((height, width), dtype=np.uint8)
+    if detected and best_contour is not None:
+        cv2.drawContours(lesion_mask, [best_contour], -1, 255, thickness=cv2.FILLED)
+    lesion_mask = cv2.morphologyEx(
+        lesion_mask,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+        iterations=2
+    )
+    
+    boundary_overlay_bgr = img_bgr.copy()
+    if detected:
+        cv2.drawContours(boundary_overlay_bgr, [best_contour], -1, (0, 255, 0), 3, cv2.LINE_AA)
+    
+    segmented_bgr = np.zeros_like(img_bgr)
+    if detected:
+        segmented_bgr[lesion_mask > 0] = img_bgr[lesion_mask > 0]
         
     # 3. Create AR Visual Overlay Image (Medical HUD styling)
     ar_overlay_bgr = img_bgr.copy()
@@ -187,6 +211,16 @@ def analyze_skin_and_lesion(
     _, buffer = cv2.imencode(".jpg", ar_overlay_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
     overlay_base64 = base64.b64encode(buffer).decode("utf-8")
     overlay_data_url = f"data:image/jpeg;base64,{overlay_base64}"
+
+    _, mask_buffer = cv2.imencode(".png", lesion_mask)
+    binary_mask_data_url = "data:image/png;base64," + base64.b64encode(mask_buffer).decode("utf-8")
+
+    _, boundary_buffer = cv2.imencode(".jpg", boundary_overlay_bgr,
+                                      [cv2.IMWRITE_JPEG_QUALITY, 92])
+    boundary_overlay_data_url = "data:image/jpeg;base64," + base64.b64encode(boundary_buffer).decode("utf-8")
+
+    _, segmented_buffer = cv2.imencode(".png", segmented_bgr)
+    segmented_image_data_url = "data:image/png;base64," + base64.b64encode(segmented_buffer).decode("utf-8")
     
     return {
         "detected": detected,
@@ -197,5 +231,8 @@ def analyze_skin_and_lesion(
         "contour_points": contour_points,
         "morphology": morphology,
         "ar_overlay_data_url": overlay_data_url,
-        "disclaimer": "The contour and center-zone overlay are unvalidated visual approximations, not lesion segmentation or clinical measurements. They do not constitute a diagnosis."
+        "disclaimer": "The contour and center-zone overlay are unvalidated visual approximations, not lesion segmentation or clinical measurements. They do not constitute a diagnosis.",
+        "binary_mask_data_url": binary_mask_data_url,
+        "boundary_overlay_data_url": boundary_overlay_data_url,
+        "segmented_image_data_url": segmented_image_data_url
     }

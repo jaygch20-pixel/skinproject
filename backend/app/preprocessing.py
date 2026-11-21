@@ -65,3 +65,12 @@ def preprocess_for_model(img: Image.Image) -> torch.Tensor:
     rgb_img = img.convert("RGB")
     tensor = eval_transform(rgb_img)
     return tensor.unsqueeze(0)
+
+def get_preprocessed_preview(img: Image.Image) -> Image.Image:
+    """Return a denormalized 224x224 preview of the exact tensor content sent to the CNN."""
+    tensor = eval_transform(img.convert("RGB"))
+    mean = torch.tensor(NORM_MEAN).view(3, 1, 1)
+    std = torch.tensor(NORM_STD).view(3, 1, 1)
+    denormalized = tensor * std + mean
+    pixels = (denormalized.clamp(0, 1).permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+    return Image.fromarray(pixels, mode="RGB")

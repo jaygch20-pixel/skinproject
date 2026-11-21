@@ -1,312 +1,183 @@
-import React, { useState, useEffect, useRef } from "react";
-import { predictWithBase64, predictWithFile } from "../services/api";
+import React, { useEffect, useRef, useState } from "react";
+import { predictWithBase64 } from "../services/api";
 import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
-export default function ARExperience({ onAnalysisComplete, setActiveTab }) {
+export default function ARExperience({ onAnalysisComplete }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const streamRef = useRef(null);
   const animationFrameRef = useRef(null);
+  const intervalRef = useRef(null);
+  const inferenceInProgressRef = useRef(false);
 
   const [cameraActive, setCameraActive] = useState(false);
-  const [cameraStream, setCameraStream] = useState(null);
-  const [facingMode, setFacingMode] = useState("environment"); // or 'user'
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [facingMode, setFacingMode] = useState("environment");
   const [error, setError] = useState(null);
-  
-  // AR Overlay state
+  const [cameraLoading, setCameraLoading] = useState(true);
   const [arResult, setArResult] = useState(null);
-  const [capturedSnapshot, setCapturedSnapshot] = useState(null);
-  const [overlayMode, setOverlayMode] = useState("camera"); // 'camera' | 'uploaded'
-  const [uploadedPreview, setUploadedPreview] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // Start Camera
-  const startCamera = async () => {
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraActive(false);
+    setArResult(null);
+  };
+
+  const analyzeFrame = async () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || inferenceInProgressRef.current) return;
+
+    inferenceInProgressRef.current = true;
+    setIsProcessing(true);
+
+    const frameCanvas = document.createElement("canvas");
+    frameCanvas.width = 224;
+    frameCanvas.height = 224;
+    const ctx = frameCanvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, 224, 224);
+
     try {
-      setError(null);
-      if (cameraStream) {
-        cameraStream.getTracks().forEach((t) => t.stop());
+      const result = await predictWithBase64(frameCanvas.toDataURL("image/jpeg", 0.82));
+      setArResult(result);
+      if (onAnalysisComplete) {
+        onAnalysisComplete({
+          result,
+          originalImage: frameCanvas.toDataURL("image/jpeg", 0.82),
+          workflow: "live-ar"
+        });
       }
+    } catch (err) {
+      setError(err.message || "Live frame analysis failed.");
+    } finally {
+      inferenceInProgressRef.current = false;
+      setIsProcessing(false);
+    }
+  };
+
+  const startCamera = async () => {
+    stopCamera();
+    setCameraLoading(true);
+    setError(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Camera access is not supported by this browser.");
+      setCameraLoading(false);
+      return;
+    }
+
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+        video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
       });
-      setCameraStream(stream);
+      streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await videoRef.current.play();
       }
       setCameraActive(true);
+      setCameraLoading(false);
+      intervalRef.current = setInterval(analyzeFrame, 1400);
     } catch (err) {
-      setError(`Camera access error: ${err.message}. Please check browser camera permissions.`);
+      let message = err.message || "Camera could not be started.";
+      if (err.name === "NotAllowedError") message = "Camera permission was denied. Allow camera access and restart.";
+      if (err.name === "NotFoundError") message = "No camera device was found.";
+      if (err.name === "NotReadableError") message = "The camera is already in use by another application.";
+      setError(message);
+      setCameraLoading(false);
       setCameraActive(false);
     }
   };
 
-  const stopCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((track) => track.stop());
-      setCameraStream(null);
-    }
-    setCameraActive(false);
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-  };
-
-  const toggleCameraFacing = () => {
-    const nextFacing = facingMode === "environment" ? "user" : "environment";
-    setFacingMode(nextFacing);
-  };
+  useEffect(() => {
+    startCamera();
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, []);
 
   useEffect(() => {
-    if (cameraActive) {
-      startCamera();
-    }
-    return () => {
-      stopCamera();
-    };
+    if (cameraActive) startCamera();
   }, [facingMode]);
 
-  // Real-time Canvas AR Loop (Drawing Reticles & Dynamic HUD)
   useEffect(() => {
-    let scanLineY = 0;
-    let scanDirection = 1;
-
     const renderLoop = () => {
       const canvas = canvasRef.current;
       const video = videoRef.current;
-      if (!canvas) return;
+      if (!canvas) {
+        animationFrameRef.current = requestAnimationFrame(renderLoop);
+        return;
+      }
+
+      if (video?.readyState >= 2) {
+        if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth || 640;
+        if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight || 480;
+      }
 
       const ctx = canvas.getContext("2d");
-      const width = canvas.width;
-      const height = canvas.height;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      ctx.clearRect(0, 0, width, height);
-
-      // If we have an active video stream, draw the AR targeting reticle
-      if (cameraActive && video && video.readyState >= 2) {
-        // Draw HUD Crosshairs & Center Brackets
-        const cx = width / 2;
-        const cy = height / 2;
-        const targetSize = Math.min(width, height) * 0.42;
-
-        // Bounding Bracket coordinates
-        const x1 = cx - targetSize / 2;
-        const y1 = cy - targetSize / 2;
-        const x2 = cx + targetSize / 2;
-        const y2 = cy + targetSize / 2;
-        const bracketLen = 24;
-
-        ctx.strokeStyle = "#00f0ff";
-        ctx.lineWidth = 2.5;
-        ctx.shadowColor = "#00f0ff";
-        ctx.shadowBlur = 8;
-
-        // Corner Brackets
-        ctx.beginPath();
-        // Top-left
-        ctx.moveTo(x1, y1 + bracketLen); ctx.lineTo(x1, y1); ctx.lineTo(x1 + bracketLen, y1);
-        // Top-right
-        ctx.moveTo(x2 - bracketLen, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + bracketLen);
-        // Bottom-left
-        ctx.moveTo(x1, y2 - bracketLen); ctx.lineTo(x1, y2); ctx.lineTo(x1 + bracketLen, y2);
-        // Bottom-right
-        ctx.moveTo(x2 - bracketLen, y2); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - bracketLen);
-        ctx.stroke();
-
-        // Center reticle marker
-        ctx.beginPath();
-        ctx.arc(cx, cy, 6, 0, 2 * Math.PI);
-        ctx.stroke();
-
-        // Animated Scanning Line
-        scanLineY += 2 * scanDirection;
-        if (scanLineY > y2) scanDirection = -1;
-        if (scanLineY < y1) scanDirection = 1;
-
-        ctx.strokeStyle = "rgba(0, 240, 255, 0.45)";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(x1 + 4, scanLineY);
-        ctx.lineTo(x2 - 4, scanLineY);
-        ctx.stroke();
-      }
-
-      // Draw OpenCV-detected lesion contour and bounding box if available
-      if (overlayMode === "uploaded" && arResult && arResult.ar_cv_overlay) {
+      if (cameraActive && arResult?.ar_cv_overlay?.detected) {
         const overlay = arResult.ar_cv_overlay;
-        const isBenign = arResult.predicted_category === "benign";
-        const themeColor = "#00f0ff";
-
-        ctx.shadowColor = themeColor;
-        ctx.shadowBlur = 12;
-
-        // Draw Contour Polygon if detected
-        if (overlay.contour_points && overlay.contour_points.length > 2) {
-          ctx.strokeStyle = themeColor;
-          ctx.lineWidth = 3;
-          ctx.fillStyle = "rgba(0, 240, 255, 0.15)";
-          
+        const points = overlay.contour_points || [];
+        if (points.length > 2) {
           ctx.beginPath();
-          overlay.contour_points.forEach((pt, idx) => {
-            const px = pt.norm_x * width;
-            const py = pt.norm_y * height;
-            if (idx === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
+          points.forEach((point, index) => {
+            const x = point.norm_x * canvas.width;
+            const y = point.norm_y * canvas.height;
+            if (index === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
           });
           ctx.closePath();
+          ctx.fillStyle = "rgba(0, 240, 255, 0.14)";
           ctx.fill();
-          ctx.stroke();
-        }
-
-        // Draw Detected Lesion Bounding Box
-        if (overlay.normalized_bounding_box) {
-          const nb = overlay.normalized_bounding_box;
-          const bx = nb.x * width;
-          const by = nb.y * height;
-          const bw = nb.width * width;
-          const bh = nb.height * height;
-
-          ctx.strokeStyle = themeColor;
-          ctx.lineWidth = 2;
-          ctx.strokeRect(bx, by, bw, bh);
-
-          // Corner tags
-          const bLen = 14;
+          ctx.strokeStyle = "#00f0ff";
           ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.moveTo(bx, by + bLen); ctx.lineTo(bx, by); ctx.lineTo(bx + bLen, by);
-          ctx.moveTo(bx + bw - bLen, by); ctx.lineTo(bx + bw, by); ctx.lineTo(bx + bw, by + bLen);
-          ctx.moveTo(bx, by + bh - bLen); ctx.lineTo(bx, by + bh); ctx.lineTo(bx + bLen, by + bh);
-          ctx.moveTo(bx + bw - bLen, by + bh); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx + bw, by + bh - bLen);
           ctx.stroke();
         }
       }
 
-      ctx.shadowBlur = 0;
       animationFrameRef.current = requestAnimationFrame(renderLoop);
     };
-
     animationFrameRef.current = requestAnimationFrame(renderLoop);
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
   }, [cameraActive, arResult]);
 
-  // Capture & Run Live Assessment
-  const captureAndAssess = async () => {
-    let base64Data;
-    if (overlayMode === "camera") {
-      if (!videoRef.current) return;
-      const snapCanvas = document.createElement("canvas");
-      snapCanvas.width = videoRef.current.videoWidth || 640;
-      snapCanvas.height = videoRef.current.videoHeight || 480;
-      const ctx = snapCanvas.getContext("2d");
-      ctx.drawImage(videoRef.current, 0, 0, snapCanvas.width, snapCanvas.height);
-      base64Data = snapCanvas.toDataURL("image/jpeg", 0.95);
-    } else {
-      base64Data = capturedSnapshot || uploadedPreview;
-    }
-
-    if (!base64Data) {
-      setError("Please ensure camera is active or select an image.");
-      return;
-    }
-
-    setIsProcessing(true);
-    setError(null);
-    setCapturedSnapshot(base64Data);
-    setArResult(null);
-    if (overlayMode === "camera") {
-      setOverlayMode("uploaded");
-      stopCamera();
-    }
-
-    try {
-      const result = await predictWithBase64(base64Data);
-      setArResult(result);
-      if (onAnalysisComplete) {
-        onAnalysisComplete({
-          result,
-          originalImage: base64Data,
-        });
-      }
-    } catch (err) {
-      setError(`AR Analysis failed: ${err.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleUploadChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setUploadedPreview(url);
-      setOverlayMode("uploaded");
-      setArResult(null);
-      stopCamera();
-      
-      // Auto analyze uploaded image in AR mode
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        const b64 = ev.target.result;
-        setCapturedSnapshot(b64);
-        setIsProcessing(true);
-        try {
-          const res = await predictWithBase64(b64);
-          setArResult(res);
-          if (onAnalysisComplete) onAnalysisComplete({ result: res, originalImage: b64 });
-        } catch (err) {
-          setError(`AR Processing error: ${err.message}`);
-        } finally {
-          setIsProcessing(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
+  const restartWithFacingMode = () => {
+    setFacingMode((current) => current === "environment" ? "user" : "environment");
   };
 
   return (
     <div>
       <MedicalDisclaimer />
-
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
           <div>
-            <h2 className="card-title" style={{ margin: 0 }}>👓 Interactive Augmented Reality HUD</h2>
+            <h2 className="card-title" style={{ margin: 0 }}>Live Augmented Reality Assessment</h2>
             <p style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-            Camera preview with a capture-time, approximate OpenCV visual aid and educational model output.
+              Automatic live-frame classification. No capture or upload is required.
             </p>
           </div>
-
           <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              className={`btn ${overlayMode === "camera" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => {
-                setOverlayMode("camera");
-                setArResult(null);
-                startCamera();
-              }}
-            >
-              📹 Live Camera
-            </button>
-            <button
-              className={`btn ${overlayMode === "uploaded" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => {
-                setOverlayMode("uploaded");
-                stopCamera();
-                document.getElementById("ar-upload-file").click();
-              }}
-            >
-              🖼️ Uploaded Photo
-            </button>
-            <input
-              id="ar-upload-file"
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              onChange={handleUploadChange}
-            />
+            {!cameraActive ? (
+              <button className="btn btn-primary" onClick={startCamera}>Start Camera</button>
+            ) : (
+              <button className="btn btn-secondary" onClick={stopCamera}>Stop Camera</button>
+            )}
+            <button className="btn btn-secondary" onClick={restartWithFacingMode}>Restart / Flip</button>
           </div>
         </div>
 
@@ -316,118 +187,35 @@ export default function ARExperience({ onAnalysisComplete, setActiveTab }) {
           </div>
         )}
 
-        {/* Viewport Box */}
         <div className="ar-viewport-box">
-          {overlayMode === "camera" ? (
-            <video ref={videoRef} autoPlay playsInline muted className="ar-video" />
-          ) : (
-            <img
-              src={capturedSnapshot || uploadedPreview}
-              alt="AR View"
-              style={{ width: "100%", height: "100%", objectFit: "contain", background: "#0f172a" }}
-            />
-          )}
-
-          {/* AR Overlay Canvas */}
-          <canvas
-            ref={canvasRef}
-            width={640}
-            height={480}
-            className="ar-canvas-overlay"
-          />
-
-          {/* AR Telemetry HUD Top-Left */}
-          <div className="ar-hud-panel">
-            <div style={{ color: "#00f0ff", fontWeight: "bold", marginBottom: "4px" }}>
-              ⚡ AR VISUAL AID • RESEARCH
+          {cameraLoading && (
+            <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "grid", placeItems: "center", background: "#0f172a", color: "#fff" }}>
+              Requesting camera access…
             </div>
-            <div>CAMERA: {cameraActive ? "LIVE PREVIEW" : "OFF / STATIC IMAGE"}</div>
-            <div>MODE: {overlayMode.toUpperCase()}</div>
-            <div>CV: APPROXIMATE, CAPTURE-TIME ONLY</div>
-            {arResult && (
-              <div style={{ marginTop: "6px", borderTop: "1px dashed rgba(0, 240, 255, 0.4)", paddingTop: "4px" }}>
-                <div>MODEL CATEGORY: <strong>{arResult.predicted_category.toUpperCase()}</strong></div>
-                <div>MODEL CONFIDENCE: {(arResult.confidence_score * 100).toFixed(1)}%</div>
-                <div>REGION AID: {arResult.ar_cv_overlay?.detected ? "HEURISTIC" : "UNAVAILABLE"}</div>
+          )}
+          <video ref={videoRef} autoPlay playsInline muted className="ar-video" />
+          <canvas ref={canvasRef} width={640} height={480} className="ar-canvas-overlay" />
+
+          {cameraActive && arResult && (
+            <div className="ar-hud-panel">
+              <div style={{ color: "#00f0ff", fontWeight: "bold", marginBottom: "4px" }}>
+                {isProcessing ? "ANALYZING LIVE FRAME…" : "LIVE MODEL RESULT"}
               </div>
-            )}
-          </div>
-
-          {/* AR Controls Bottom Bar */}
-          <div className="ar-hud-bottom">
-            {overlayMode === "camera" && (
-              <>
-                {!cameraActive ? (
-                  <button className="btn btn-primary" onClick={startCamera}>
-                    ▶️ Start Camera
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      className="btn"
-                      style={{ background: "#00f0ff", color: "#0f172a", fontWeight: "bold" }}
-                      onClick={captureAndAssess}
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? "⏳ Assessing..." : "🎯 Capture & Assess Lesion"}
-                    </button>
-                    <button className="btn btn-secondary" onClick={toggleCameraFacing} title="Flip Camera">
-                      🔄 Flip
-                    </button>
-                    <button className="btn btn-secondary" onClick={stopCamera}>
-                      ⏹️ Stop
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-
-            {overlayMode === "uploaded" && (
-              <button
-                className="btn btn-primary"
-                onClick={captureAndAssess}
-                disabled={isProcessing}
-              >
-                {isProcessing ? "⏳ Analyzing..." : "⚡ Re-analyze captured image"}
-              </button>
-            )}
-          </div>
+              <div>STATUS: DETECTED</div>
+              <div>MODEL CATEGORY: <strong>{arResult.predicted_category.toUpperCase()}</strong></div>
+              <div>CONFIDENCE: {arResult.confidence_percentage}%</div>
+              <div>REGION AID: {arResult.ar_cv_overlay?.detected ? "APPROXIMATE" : "UNAVAILABLE"}</div>
+            </div>
+          )}
         </div>
 
-        {/* Diagnostic Assessment Banner */}
         {arResult && (
-          <div
-            style={{
-              marginTop: "20px",
-              padding: "16px",
-              borderRadius: "8px",
-              background: arResult.predicted_category === "benign" ? "var(--benign-bg)" : "var(--malignant-bg)",
-              border: `1px solid ${arResult.predicted_category === "benign" ? "#86efac" : "#fca5a5"}`,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "12px",
-            }}
-          >
-            <div>
-              <span className={`badge ${arResult.predicted_category === "benign" ? "badge-benign" : "badge-malignant"}`}>
-                {arResult.predicted_category}
-              </span>
-              <strong style={{ marginLeft: "12px", fontSize: "16px" }}>
-                Model Confidence: {arResult.confidence_percentage}%
-              </strong>
-              <p style={{ fontSize: "13px", marginTop: "4px", color: "var(--text-main)" }}>
-                {arResult.assessment_summary?.clinical_description}
-              </p>
-            </div>
-
-            <button
-              className="btn btn-primary"
-              onClick={() => setActiveTab("results")}
-            >
-              View Assessment Details →
-            </button>
+          <div style={{ marginTop: "16px", padding: "14px", borderRadius: 8, background: "#f8fafc", border: "1px solid var(--border)" }}>
+            <strong>{arResult.predicted_category.toUpperCase()}</strong>
+            <span style={{ marginLeft: 12 }}>Confidence: {arResult.confidence_percentage}%</span>
+            <p style={{ marginTop: 6, fontSize: 13, color: "var(--text-muted)" }}>
+              Live results are educational model estimates. Approximate boundaries are not medically verified lesion segmentation.
+            </p>
           </div>
         )}
       </div>

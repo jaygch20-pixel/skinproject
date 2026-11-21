@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
 export default function Results({ analysisData, setActiveTab }) {
+  const [expandedImage, setExpandedImage] = useState(null);
   if (!analysisData || !analysisData.result) {
     return (
       <div>
@@ -31,6 +32,14 @@ export default function Results({ analysisData, setActiveTab }) {
   const isBenign = result.predicted_category === "benign";
   const overlay = result.ar_cv_overlay || {};
   const morphology = overlay.morphology || {};
+  const visualizations = result.segmentation_visualizations;
+  const fiveCards = visualizations ? [
+    ["Original Image", visualizations.original_image],
+    ["Preprocessed CNN Input", visualizations.preprocessed_cnn_input],
+    ["Approximate Binary Lesion Mask", visualizations.binary_mask],
+    ["Approximate Lesion-Boundary Overlay", visualizations.boundary_overlay],
+    ["Approximate Segmented Image", visualizations.segmented_image]
+  ] : null;
 
   return (
     <div>
@@ -83,39 +92,47 @@ export default function Results({ analysisData, setActiveTab }) {
         </div>
       </div>
 
-      {/* Visual Inspection Comparison */}
-      <div className="card">
-        <h3 className="card-title">🔍 Image & Approximate Visual Aid</h3>
-        <div className="grid-2" style={{ marginTop: "16px" }}>
-          {/* Original Image */}
-          <div>
-            <h4 style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "8px" }}>
-              Uploaded or captured image
-            </h4>
-            <div style={{ width: "100%", height: "280px", borderRadius: "8px", overflow: "hidden", background: "#0f172a", border: "1px solid var(--border)" }}>
-              <img
-                src={originalImage}
-                alt="Original Sample"
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              />
-            </div>
+      {fiveCards ? (
+        <div className="card segmentation-card">
+          <h3 className="card-title">Image Processing Visualizations</h3>
+          <div className="segmentation-grid">
+            {fiveCards.map(([title, imageUrl]) => (
+              <button
+                type="button"
+                className="segmentation-item"
+                key={title}
+                onClick={() => setExpandedImage({ title, imageUrl })}
+                aria-label={`Enlarge ${title}`}
+              >
+                <h4>{title}</h4>
+                <div className="segmentation-image-wrap">
+                  <img src={imageUrl || originalImage} alt={title} />
+                </div>
+              </button>
+            ))}
           </div>
-
-          {/* AR OpenCV Annotated Overlay */}
-          <div>
-            <h4 style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "8px" }}>
-              Approximate OpenCV overlay (not validated lesion segmentation)
-            </h4>
-            <div style={{ width: "100%", height: "280px", borderRadius: "8px", overflow: "hidden", background: "#0f172a", border: "1px solid var(--border)" }}>
-              <img
-                src={overlay.ar_overlay_data_url || originalImage}
-                alt="Approximate OpenCV visual aid"
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              />
-            </div>
+          <p className="segmentation-disclaimer">
+            Segmentation outputs are approximate computer-vision results, not medically verified lesion boundaries.
+          </p>
+        </div>
+      ) : (
+        <div className="card">
+          <h3 className="card-title">Live AR Approximate Visual Aid</h3>
+          <div style={{ width: "100%", maxWidth: "640px", height: "280px", margin: "0 auto", borderRadius: "8px", overflow: "hidden", background: "#0f172a", border: "1px solid var(--border)" }}>
+            <img src={overlay.ar_overlay_data_url || originalImage} alt="Approximate live OpenCV visual aid" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
           </div>
         </div>
-      </div>
+      )}
+
+      {expandedImage && (
+        <div className="image-modal" role="dialog" aria-modal="true" onClick={() => setExpandedImage(null)}>
+          <button type="button" className="image-modal-close" onClick={() => setExpandedImage(null)} aria-label="Close enlarged image">Close</button>
+          <div className="image-modal-content" onClick={(event) => event.stopPropagation()}>
+            <h3>{expandedImage.title}</h3>
+            <img src={expandedImage.imageUrl} alt={expandedImage.title} />
+          </div>
+        </div>
+      )}
 
       {/* Probability Distribution & Morphometrics */}
       <div className="grid-2">
