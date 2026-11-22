@@ -1,12 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { predictWithBase64 } from "../services/api";
-import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
 export default function ARExperience({ onAnalysisComplete }) {
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
   const streamRef = useRef(null);
-  const animationFrameRef = useRef(null);
   const intervalRef = useRef(null);
   const inferenceInProgressRef = useRef(false);
 
@@ -16,6 +13,7 @@ export default function ARExperience({ onAnalysisComplete }) {
   const [cameraLoading, setCameraLoading] = useState(true);
   const [arResult, setArResult] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [videoSize, setVideoSize] = useState({ width: 4, height: 3 });
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -34,19 +32,21 @@ export default function ARExperience({ onAnalysisComplete }) {
     inferenceInProgressRef.current = true;
     setIsProcessing(true);
 
+    const scale = Math.min(1, 640 / video.videoWidth, 480 / video.videoHeight);
     const frameCanvas = document.createElement("canvas");
-    frameCanvas.width = 224;
-    frameCanvas.height = 224;
+    frameCanvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    frameCanvas.height = Math.max(1, Math.round(video.videoHeight * scale));
     const ctx = frameCanvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, 224, 224);
+    ctx.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+    const frameImage = frameCanvas.toDataURL("image/jpeg", 0.82);
 
     try {
-      const result = await predictWithBase64(frameCanvas.toDataURL("image/jpeg", 0.82));
+      const result = await predictWithBase64(frameImage, { include_visualizations: false });
       setArResult(result);
       if (onAnalysisComplete) {
         onAnalysisComplete({
           result,
-          originalImage: frameCanvas.toDataURL("image/jpeg", 0.82),
+          originalImage: frameImage,
           workflow: "live-ar"
         });
       }
@@ -82,10 +82,14 @@ export default function ARExperience({ onAnalysisComplete }) {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        setVideoSize({
+          width: videoRef.current.videoWidth || 4,
+          height: videoRef.current.videoHeight || 3
+        });
       }
       setCameraActive(true);
       setCameraLoading(false);
-      intervalRef.current = setInterval(analyzeFrame, 1400);
+      intervalRef.current = setInterval(analyzeFrame, 2000);
     } catch (err) {
       let message = err.message || "Camera could not be started.";
       if (err.name === "NotAllowedError") message = "Camera permission was denied. Allow camera access and restart.";
@@ -103,7 +107,6 @@ export default function ARExperience({ onAnalysisComplete }) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       if (intervalRef.current) clearInterval(intervalRef.current);
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
   }, []);
 
@@ -111,58 +114,12 @@ export default function ARExperience({ onAnalysisComplete }) {
     if (cameraActive) startCamera();
   }, [facingMode]);
 
-  useEffect(() => {
-    const renderLoop = () => {
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      if (!canvas) {
-        animationFrameRef.current = requestAnimationFrame(renderLoop);
-        return;
-      }
-
-      if (video?.readyState >= 2) {
-        if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth || 640;
-        if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight || 480;
-      }
-
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (cameraActive && arResult?.ar_cv_overlay?.detected) {
-        const overlay = arResult.ar_cv_overlay;
-        const points = overlay.contour_points || [];
-        if (points.length > 2) {
-          ctx.beginPath();
-          points.forEach((point, index) => {
-            const x = point.norm_x * canvas.width;
-            const y = point.norm_y * canvas.height;
-            if (index === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-          });
-          ctx.closePath();
-          ctx.fillStyle = "rgba(0, 240, 255, 0.14)";
-          ctx.fill();
-          ctx.strokeStyle = "#00f0ff";
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
-      }
-
-      animationFrameRef.current = requestAnimationFrame(renderLoop);
-    };
-    animationFrameRef.current = requestAnimationFrame(renderLoop);
-    return () => {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    };
-  }, [cameraActive, arResult]);
-
   const restartWithFacingMode = () => {
     setFacingMode((current) => current === "environment" ? "user" : "environment");
   };
 
   return (
     <div>
-      <MedicalDisclaimer />
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
           <div>
@@ -187,34 +144,47 @@ export default function ARExperience({ onAnalysisComplete }) {
           </div>
         )}
 
-        <div className="ar-viewport-box">
+        <div className="ar-viewport-box" style={{ aspectRatio: `${videoSize.width} / ${videoSize.height}` }}>
           {cameraLoading && (
             <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "grid", placeItems: "center", background: "#0f172a", color: "#fff" }}>
               Requesting camera access…
             </div>
           )}
-          <video ref={videoRef} autoPlay playsInline muted className="ar-video" />
-          <canvas ref={canvasRef} width={640} height={480} className="ar-canvas-overlay" />
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            onLoadedMetadata={(event) => setVideoSize({
+              width: event.currentTarget.videoWidth || 4,
+              height: event.currentTarget.videoHeight || 3
+            })}
+            className={`ar-video ${facingMode === "user" ? "ar-video-mirrored" : ""}`}
+          />
 
           {cameraActive && arResult && (
             <div className="ar-hud-panel">
               <div style={{ color: "#00f0ff", fontWeight: "bold", marginBottom: "4px" }}>
                 {isProcessing ? "ANALYZING LIVE FRAME…" : "LIVE MODEL RESULT"}
               </div>
-              <div>STATUS: DETECTED</div>
-              <div>MODEL CATEGORY: <strong>{arResult.predicted_category.toUpperCase()}</strong></div>
+              <div>STATUS: {arResult.uncertain ? "UNCERTAIN" : "MODEL RESULT"}</div>
+              <div>
+                MODEL CATEGORY: <strong>
+                  {arResult.uncertain ? "UNCERTAIN" : arResult.predicted_category.toUpperCase()}
+                </strong>
+              </div>
               <div>CONFIDENCE: {arResult.confidence_percentage}%</div>
-              <div>REGION AID: {arResult.ar_cv_overlay?.detected ? "APPROXIMATE" : "UNAVAILABLE"}</div>
+              <div>LESION BOUNDARY: NOT AVAILABLE</div>
             </div>
           )}
         </div>
 
         {arResult && (
           <div style={{ marginTop: "16px", padding: "14px", borderRadius: 8, background: "#f8fafc", border: "1px solid var(--border)" }}>
-            <strong>{arResult.predicted_category.toUpperCase()}</strong>
+            <strong>{arResult.uncertain ? "UNCERTAIN" : arResult.predicted_category.toUpperCase()}</strong>
             <span style={{ marginLeft: 12 }}>Confidence: {arResult.confidence_percentage}%</span>
             <p style={{ marginTop: 6, fontSize: 13, color: "var(--text-muted)" }}>
-              Live results are educational model estimates. Approximate boundaries are not medically verified lesion segmentation.
+              Live results are educational model estimates. The classifier has no pixel-level segmentation output, so live lesion boundaries are not shown.
             </p>
           </div>
         )}

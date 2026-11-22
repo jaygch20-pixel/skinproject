@@ -1,10 +1,8 @@
 import React from "react";
-import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
 export default function Home({ setActiveTab }) {
   return (
     <div>
-      <MedicalDisclaimer />
 
       {/* Hero Section */}
       <section

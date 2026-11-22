@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class PredictBase64Request(BaseModel):
     image: str = Field(..., min_length=1, description="Base64 encoded skin image or data URL from camera")
+    include_visualizations: bool = True
 
 @router.get("/health")
 def get_health():
@@ -70,7 +71,10 @@ def get_model_info():
                 "multipart/form-data": {
                     "schema": {
                         "type": "object",
-                        "properties": {"file": {"type": "string", "format": "binary"}},
+                        "properties": {
+                            "file": {"type": "string", "format": "binary"},
+                            "include_visualizations": {"type": "boolean", "default": True},
+                        },
                         "required": ["file"],
                     }
                 },
@@ -85,9 +89,11 @@ async def predict_image(request: Request):
     Returns predicted disease category, confidence, probabilities, and AR CV overlay metadata.
     """
     content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    include_visualizations = True
     try:
         if content_type == "multipart/form-data":
             form = await request.form()
+            include_visualizations = str(form.get("include_visualizations", "true")).lower() == "true"
             upload = form.get("file")
             if not isinstance(upload, UploadFile):
                 raise HTTPException(status_code=400, detail="Multipart request must include an image file in the 'file' field.")
@@ -106,13 +112,17 @@ async def predict_image(request: Request):
             except ValidationError as error:
                 raise HTTPException(status_code=422, detail=error.errors()) from error
             image_input = payload.image
+            include_visualizations = payload.include_visualizations
         else:
             raise HTTPException(
                 status_code=415,
                 detail="Use multipart/form-data with a 'file' field or application/json with an 'image' field.",
             )
 
-        result = prediction_service.predict(image_input)
+        result = prediction_service.predict(
+            image_input,
+            include_visualizations=include_visualizations
+        )
         return JSONResponse(status_code=200, content=result)
     except HTTPException:
         raise

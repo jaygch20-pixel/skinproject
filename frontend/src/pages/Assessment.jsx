@@ -1,6 +1,5 @@
 import React, { useRef, useState } from "react";
 import { predictWithFile } from "../services/api";
-import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
 export default function Assessment({ onAnalysisComplete, setActiveTab }) {
   const fileInputRef = useRef(null);
@@ -50,7 +49,6 @@ export default function Assessment({ onAnalysisComplete, setActiveTab }) {
 
   return (
     <div>
-      <MedicalDisclaimer />
       <div className="card">
         <h2 className="card-title">Skin Lesion Image Assessment</h2>
         <p style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "20px" }}>

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { getModelInfo, getEvaluationMetrics, getChartUrl } from "../services/api";
-import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
 export default function ModelInfo() {
   const [modelData, setModelData] = useState(null);
@@ -27,7 +26,6 @@ export default function ModelInfo() {
 
   return (
     <div>
-      <MedicalDisclaimer />
 
       {/* Overview Card */}
       <div className="card">

@@ -39,8 +39,11 @@ export async function predictWithFile(file) {
   return data;
 }
 
-export async function predictWithBase64(base64Image) {
-  const { data } = await api.post("/predict", { image: base64Image });
+export async function predictWithBase64(base64Image, options = {}) {
+  const { data } = await api.post("/predict", {
+    image: base64Image,
+    ...options
+  });
   return data;
 }
 

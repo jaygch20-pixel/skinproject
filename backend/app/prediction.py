@@ -10,7 +10,13 @@ import torch
 import torch.nn as nn
 
 from app.model import SkinModelManager
-from app.preprocessing import decode_image_bytes, decode_base64_image, preprocess_for_model, get_preprocessed_preview
+from app.preprocessing import (
+    decode_image_bytes,
+    decode_base64_image,
+    preprocess_for_model,
+    get_preprocessed_preview,
+    assess_image_quality
+)
 from app.utils.cv_ar import analyze_skin_and_lesion, pil_to_png_data_url, pil_to_jpeg_data_url
 
 MEDICAL_DESCRIPTIONS = {
@@ -36,7 +42,11 @@ class PredictionService:
         self.model_manager = SkinModelManager.get_instance()
         self.softmax = nn.Softmax(dim=1)
         
-    def predict(self, image_input: Union[bytes, str, Image.Image]) -> Dict[str, Any]:
+    def predict(
+        self,
+        image_input: Union[bytes, str, Image.Image],
+        include_visualizations: bool = True
+    ) -> Dict[str, Any]:
         """
         Accepts raw bytes, base64 string, or PIL Image.
         Executes model inference and CV/AR processing.
@@ -52,6 +62,7 @@ class PredictionService:
             raise ValueError(f"Unsupported image input type: {type(image_input)}")
             
         # 2. Preprocess for deep learning model
+        quality = assess_image_quality(pil_img)
         tensor = preprocess_for_model(pil_img).to(self.model_manager.device)
         
         # 3. Model Forward Pass
@@ -75,33 +86,70 @@ class PredictionService:
         top_idx = int(torch.argmax(outputs, dim=1).item())
         predicted_class = class_names[top_idx]
         confidence = float(probs[top_idx])
+        raw_predicted_category = predicted_class
+
+        confidence_threshold = 0.65
+        uncertain = (
+            not quality["suitable"]
+            or confidence < confidence_threshold
+        )
+        if uncertain:
+            predicted_class = "uncertain"
         
         # 4. Computer Vision Skin and Lesion AR Analysis
-        cv_result = analyze_skin_and_lesion(
-            pil_image=pil_img,
-            predicted_class=predicted_class,
-            confidence=confidence
-        )
-        preprocessed_preview = get_preprocessed_preview(pil_img)
-        segmentation_visualizations = {
-            "original_image": pil_to_png_data_url(pil_img),
-            "preprocessed_cnn_input": pil_to_png_data_url(preprocessed_preview),
-            "binary_mask": cv_result["binary_mask_data_url"],
-            "boundary_overlay": cv_result["boundary_overlay_data_url"],
-            "segmented_image": cv_result["segmented_image_data_url"]
-        }
+        if include_visualizations:
+            cv_result = analyze_skin_and_lesion(
+                pil_image=pil_img,
+                predicted_class=predicted_class,
+                confidence=confidence,
+                generate_segmentation=not uncertain
+            )
+            preprocessed_preview = get_preprocessed_preview(pil_img)
+            segmentation_visualizations = {
+                "original_image": pil_to_png_data_url(pil_img),
+                "preprocessed_cnn_input": pil_to_png_data_url(preprocessed_preview),
+                "binary_mask": cv_result["binary_mask_data_url"],
+                "boundary_overlay": cv_result["boundary_overlay_data_url"],
+                "segmented_image": cv_result["segmented_image_data_url"]
+            }
+        else:
+            cv_result = {
+                "detected": False,
+                "localization_supported": False,
+                "contour_points": [],
+                "contours": [],
+                "disclaimer": "The classifier does not produce a pixel-level localization mask."
+            }
+            segmentation_visualizations = None
         
-        desc_info = MEDICAL_DESCRIPTIONS.get(predicted_class, {
-            "title": f"Category: {predicted_class.capitalize()}",
-            "description": f"Model classified image as {predicted_class}.",
-            "risk_level": "Evaluation Required",
-            "recommendation": "Consult a physician for clinical assessment."
-        })
+        if uncertain:
+            desc_info = {
+                "title": "Uncertain model result",
+                "description": (
+                    f"The model's strongest category is {raw_predicted_category}, "
+                    f"but the confidence or image-quality checks are insufficient for a supported category result."
+                ),
+                "risk_level": "Insufficient confidence",
+                "recommendation": "Use a well-lit, in-focus, close-up image of the skin area and consult a qualified dermatologist for any concerning lesion."
+            }
+        else:
+            desc_info = MEDICAL_DESCRIPTIONS.get(raw_predicted_category, {
+                "title": f"Category: {raw_predicted_category.capitalize()}",
+                "description": f"Model classified image as {raw_predicted_category}.",
+                "risk_level": "Evaluation Required",
+                "recommendation": "Consult a physician for clinical assessment."
+            })
         
         return {
             "status": "success",
-            "prediction_status": "completed",
+            "prediction_status": "uncertain" if uncertain else "completed",
             "predicted_category": predicted_class,
+            "raw_predicted_category": raw_predicted_category,
+            "uncertain": uncertain,
+            "uncertainty_reason": quality["reason"] if not quality["suitable"] else (
+                f"Model confidence is below the {confidence_threshold:.0%} supported-result threshold."
+                if confidence < confidence_threshold else None
+            ),
             "confidence_score": round(confidence, 4),
             "confidence_percentage": round(confidence * 100, 2),
             "class_probabilities": probabilities,
