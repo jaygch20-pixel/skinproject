@@ -63,6 +63,7 @@ export default function ARExperience({ onAnalysisComplete }) {
   const overlayTimestampRef = useRef(0);
   const previousOverlayRef = useRef(null);
   const facingModeRef = useRef("environment");
+  const cameraGenerationRef = useRef(0);
 
   const [cameraActive, setCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState("environment");
@@ -77,6 +78,7 @@ export default function ARExperience({ onAnalysisComplete }) {
   facingModeRef.current = facingMode;
 
   const stopCamera = () => {
+    cameraGenerationRef.current += 1;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -89,6 +91,7 @@ export default function ARExperience({ onAnalysisComplete }) {
     setOverlayFresh(false);
     setCameraActive(false);
     setArResult(null);
+    setIsProcessing(false);
   };
 
   const analyzeFrame = async () => {
@@ -116,13 +119,25 @@ export default function ARExperience({ onAnalysisComplete }) {
     context.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
     const frameImage = frameCanvas.toDataURL("image/jpeg", 0.82);
     const capturedAt = Date.now();
+    const cameraGeneration = cameraGenerationRef.current;
 
     try {
       const result = await predictWithBase64(frameImage, {
         include_visualizations: false
       });
+      if (cameraGeneration !== cameraGenerationRef.current) return;
       setError(null);
       const nextOverlay = result.ar_cv_overlay || {};
+      if (Date.now() - capturedAt > OVERLAY_MAX_AGE_MS) {
+        overlayRef.current = null;
+        previousOverlayRef.current = null;
+        overlayTimestampRef.current = 0;
+        overlayFreshRef.current = false;
+        setOverlayFresh(false);
+        setArResult(null);
+        return;
+      }
+
       if (nextOverlay.detected) {
         const smoothedOverlay = smoothNearbyContour(
           previousOverlayRef.current,
@@ -131,7 +146,7 @@ export default function ARExperience({ onAnalysisComplete }) {
         result.ar_cv_overlay = smoothedOverlay;
         overlayRef.current = smoothedOverlay;
         previousOverlayRef.current = smoothedOverlay;
-        overlayTimestampRef.current = Date.now();
+        overlayTimestampRef.current = capturedAt;
         overlayFreshRef.current = true;
         setOverlayFresh(true);
       } else {
@@ -152,6 +167,7 @@ export default function ARExperience({ onAnalysisComplete }) {
         });
       }
     } catch (requestError) {
+      if (cameraGeneration !== cameraGenerationRef.current) return;
       overlayRef.current = null;
       previousOverlayRef.current = null;
       overlayTimestampRef.current = 0;
@@ -161,12 +177,15 @@ export default function ARExperience({ onAnalysisComplete }) {
       setError(requestError.message || "Live frame analysis failed.");
     } finally {
       inferenceInProgressRef.current = false;
-      setIsProcessing(false);
+      if (cameraGeneration === cameraGenerationRef.current) {
+        setIsProcessing(false);
+      }
     }
   };
 
   const startCamera = async () => {
     stopCamera();
+    const cameraGeneration = cameraGenerationRef.current;
     setCameraLoading(true);
     setError(null);
 
@@ -185,10 +204,15 @@ export default function ARExperience({ onAnalysisComplete }) {
         },
         audio: false
       });
+      if (cameraGeneration !== cameraGenerationRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        if (cameraGeneration !== cameraGenerationRef.current) return;
         setVideoSize({
           width: videoRef.current.videoWidth || 4,
           height: videoRef.current.videoHeight || 3
@@ -198,6 +222,9 @@ export default function ARExperience({ onAnalysisComplete }) {
       setCameraLoading(false);
       intervalRef.current = setInterval(analyzeFrame, FRAME_INTERVAL_MS);
     } catch (cameraError) {
+      if (cameraGeneration !== cameraGenerationRef.current) return;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
       let message = cameraError.message || "Camera could not be started.";
       if (cameraError.name === "NotAllowedError") {
         message = "Camera permission was denied. Allow camera access and restart.";
@@ -217,6 +244,7 @@ export default function ARExperience({ onAnalysisComplete }) {
   useEffect(() => {
     startCamera();
     return () => {
+      cameraGenerationRef.current += 1;
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -286,9 +314,11 @@ export default function ARExperience({ onAnalysisComplete }) {
           } else if (overlay && !isFresh) {
             overlayRef.current = null;
             previousOverlayRef.current = null;
+            overlayTimestampRef.current = 0;
             if (overlayFreshRef.current) {
               overlayFreshRef.current = false;
               setOverlayFresh(false);
+              setArResult(null);
             }
           }
         }
@@ -361,7 +391,7 @@ export default function ARExperience({ onAnalysisComplete }) {
               <div style={{ color: "#00f0ff", fontWeight: "bold", marginBottom: "4px" }}>
                 {isProcessing ? "ANALYZING LIVE FRAME…" : "LIVE ANALYSIS"}
               </div>
-              <div>LESION CANDIDATE: {detected ? "DETECTED" : "NOT DETECTED"}</div>
+              <div>LESION CANDIDATE: {detected ? "DETECTED" : "Lesion not detected"}</div>
               {arResult && (
                 <>
                   <div>MODEL CATEGORY: <strong>{arResult.predicted_category.toUpperCase()}</strong></div>

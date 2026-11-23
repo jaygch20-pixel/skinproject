@@ -40,9 +40,9 @@
    - Overlay geometry is not validated lesion segmentation or a clinical measurement.
 
 5. **Browser Camera Overlay:**
-   - Webcam and mobile camera preview with capture controls.
-   - AR-style HTML5 Canvas overlay with a static-image fallback.
-   - Approximate computer-vision results are shown on the captured image, not presented as live lesion tracking.
+   - Opens the webcam or mobile camera when the AR page is entered and analyzes resized live frames asynchronously.
+   - Displays a blue/cyan HTML5 Canvas contour over the live preview; missing or expired results clear the overlay.
+   - The ResNet18 checkpoint is an image-level classifier, not a lesion segmentation model. The displayed contour is an approximate OpenCV color/contrast candidate and is not trained lesion tracking or validated segmentation.
    - Camera access uses browser permissions and requires HTTPS or localhost.
 
 6. **Full-Stack Web Architecture:**
