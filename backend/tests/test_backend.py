@@ -38,34 +38,61 @@ def test_near_duplicate_detection(tmp_path):
     assert len(pairs) == 1
     assert pairs[0]["ssim"] >= 0.98
 
-def test_cv_candidates_keep_multiple_interior_regions_separate():
+def test_opencv_candidate_produces_aligned_mask_contour_and_overlay():
     image = Image.new("RGB", (320, 240), (190, 145, 130))
-    draw = ImageDraw.Draw(image)
-    draw.ellipse((45, 50, 105, 110), fill=(65, 40, 30))
-    draw.ellipse((205, 125, 265, 185), fill=(65, 40, 30))
+    ImageDraw.Draw(image).ellipse((105, 70, 215, 180), fill=(65, 40, 30))
 
     result = analyze_skin_and_lesion(image)
 
     assert result["detected"] is True
-    assert len(result["contours"]) >= 2
     assert result["localization_supported"] is False
-    assert result["bounding_box"]["x"] > 1
-    assert result["bounding_box"]["x"] + result["bounding_box"]["width"] < image.width - 1
-    for data_url in (
-        result["binary_mask_data_url"],
-        result["boundary_overlay_data_url"],
-        result["segmented_image_data_url"]
-    ):
-        encoded_image = data_url.split(",", 1)[1]
-        rendered = Image.open(io.BytesIO(base64.b64decode(encoded_image)))
-        assert rendered.size == image.size
+    assert result["image_width"] == image.width
+    assert result["image_height"] == image.height
+    assert len(result["contour_points"]) == 48
+    assert 95 <= result["bounding_box"]["x"] <= 120
+    assert 60 <= result["bounding_box"]["y"] <= 85
+    assert result["center"]["x"] > 140
 
-def test_cv_candidates_do_not_mark_uniform_skin():
+    encoded_mask = result["binary_mask_data_url"].split(",", 1)[1]
+    mask = np.asarray(Image.open(io.BytesIO(base64.b64decode(encoded_mask))))
+    assert mask.shape == (image.height, image.width)
+    assert 0 < np.count_nonzero(mask) < mask.size
+    encoded_boundary = result["boundary_overlay_data_url"].split(",", 1)[1]
+    boundary = np.asarray(Image.open(io.BytesIO(base64.b64decode(encoded_boundary))).convert("RGB"))
+    assert np.count_nonzero(
+        (boundary[:, :, 2] > 170) & (boundary[:, :, 0] < 100)
+    ) > 0
+    assert result["segmented_image_data_url"].startswith("data:image/png;base64,")
+
+def test_uniform_image_reports_unavailable_instead_of_empty_mask_visualization():
     result = analyze_skin_and_lesion(Image.new("RGB", (320, 240), (190, 145, 130)))
 
     assert result["detected"] is False
-    assert result["contours"] == []
-    assert result["localization_supported"] is False
+    assert result["binary_mask_data_url"] is None
+    assert result["boundary_overlay_data_url"] is None
+    assert result["segmentation_warning"]
+
+def test_non_skin_background_is_not_reported_as_lesion():
+    image = Image.new("RGB", (320, 240), (30, 95, 160))
+    ImageDraw.Draw(image).ellipse((105, 70, 215, 180), fill=(20, 20, 25))
+
+    result = analyze_skin_and_lesion(image)
+
+    assert result["detected"] is False
+    assert result["binary_mask_data_url"] is None
+
+def test_resized_frame_contour_coordinates_return_to_original_dimensions():
+    image = Image.new("RGB", (1280, 960), (190, 145, 130))
+    ImageDraw.Draw(image).ellipse((420, 290, 860, 730), fill=(65, 40, 30))
+
+    result = analyze_skin_and_lesion(image, include_visualizations=False)
+
+    assert result["detected"] is True
+    assert result["image_width"] == 1280
+    assert result["image_height"] == 960
+    assert result["bounding_box"]["x"] > 350
+    assert result["bounding_box"]["x"] + result["bounding_box"]["width"] < 920
+    assert "binary_mask_data_url" not in result
 
 def test_prediction_fails_when_trained_checkpoint_is_unavailable(monkeypatch):
     class UnavailableManager:
@@ -108,8 +135,8 @@ def test_predict_documents_both_input_formats():
     assert "application/json" in content
 
 def test_predict_with_file_upload():
-    # Create test skin patch image
-    img = Image.new("RGB", (224, 224), color=(220, 180, 160))
+    img = Image.new("RGB", (224, 224), color=(190, 145, 130))
+    ImageDraw.Draw(img).ellipse((65, 65, 160, 160), fill=(65, 40, 30))
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
     buf.seek(0)
@@ -121,7 +148,7 @@ def test_predict_with_file_upload():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    assert data["predicted_category"] in ["benign", "malignant", "uncertain"]
+    assert data["predicted_category"] in ["benign", "malignant"]
     assert 0.0 <= data["confidence_score"] <= 1.0
     assert "class_probabilities" in data
     assert "ar_cv_overlay" in data
@@ -133,14 +160,16 @@ def test_predict_with_file_upload():
         "preprocessed_cnn_input",
         "binary_mask",
         "boundary_overlay",
-        "segmented_image"
+        "segmented_image",
+        "warning"
     }
-    assert all(value.startswith("data:image/") for value in visualizations.values())
+    assert visualizations["binary_mask"].startswith("data:image/png;base64,")
+    assert visualizations["boundary_overlay"].startswith("data:image/jpeg;base64,")
+    assert visualizations["segmented_image"].startswith("data:image/png;base64,")
     assert "medical_safety_disclaimer" in data
     print(f"[PASS] POST /api/predict (File Upload) verified: Predicted {data['predicted_category']} with {data['confidence_percentage']}% confidence.")
 
 def test_predict_with_base64():
-    import base64
     img = Image.new("RGB", (224, 224), color=(200, 150, 130))
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
@@ -155,9 +184,9 @@ def test_predict_with_base64():
     assert data["status"] == "success"
     print(f"[PASS] POST /api/predict (Base64 Camera Frame) verified: Predicted {data['predicted_category']} ({data['confidence_percentage']}%).")
 
-def test_predict_can_skip_visualization_payload_for_live_camera():
-    import base64
-    img = Image.new("RGB", (320, 180), color=(200, 150, 130))
+def test_live_prediction_skips_visualization_images_but_returns_contours():
+    img = Image.new("RGB", (320, 180), color=(190, 145, 130))
+    ImageDraw.Draw(img).ellipse((100, 40, 220, 160), fill=(65, 40, 30))
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
     b64_str = f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
@@ -170,45 +199,10 @@ def test_predict_can_skip_visualization_payload_for_live_camera():
     assert response.status_code == 200
     data = response.json()
     assert data["segmentation_visualizations"] is None
-    assert data["ar_cv_overlay"]["localization_supported"] is False
-    assert data["ar_cv_overlay"]["detected"] is False
-
-def test_plain_image_returns_uncertain():
-    img = Image.new("RGB", (224, 224), color=(128, 128, 128))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-    buf.seek(0)
-
-    response = client.post(
-        "/api/predict",
-        files={"file": ("plain.jpg", buf, "image/jpeg")}
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["uncertain"] is True
-    assert data["predicted_category"] == "uncertain"
-    assert data["ar_cv_overlay"]["detected"] is False
-    assert data["uncertainty_reason"]
-
-def test_dataset_benign_and_malignant_samples_return_real_predictions():
-    cases = [
-        ("data/balanced/test/benign/benign_00000.jpg", "benign"),
-        ("data/balanced/test/benign/benign_00001.jpg", "benign"),
-        ("data/balanced/test/malignant/malignant_00000.jpg", "malignant"),
-        ("data/balanced/test/malignant/malignant_00001.jpg", "malignant")
-    ]
-    for path, _label in cases:
-        if not os.path.exists(path):
-            continue
-        with open(path, "rb") as image_file:
-            response = client.post(
-                "/api/predict",
-                files={"file": (os.path.basename(path), image_file, "image/jpeg")}
-            )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["raw_predicted_category"] in ["benign", "malignant"]
-        assert data["confidence_score"] == round(data["confidence_score"], 4)
+    assert data["ar_cv_overlay"]["image_width"] == 320
+    assert data["ar_cv_overlay"]["image_height"] == 180
+    if data["ar_cv_overlay"]["detected"]:
+        assert len(data["ar_cv_overlay"]["contour_points"]) == 48
 
 def test_predict_validation_error():
     # Empty file

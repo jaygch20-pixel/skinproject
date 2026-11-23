@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { predictWithFile } from "../services/api";
+import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
 export default function Assessment({ onAnalysisComplete, setActiveTab }) {
   const fileInputRef = useRef(null);
@@ -49,10 +50,11 @@ export default function Assessment({ onAnalysisComplete, setActiveTab }) {
 
   return (
     <div>
+      <MedicalDisclaimer />
       <div className="card">
         <h2 className="card-title">Skin Lesion Image Assessment</h2>
         <p style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "20px" }}>
-          Upload a skin photograph for model analysis and five automatic segmentation visualizations.
+          Upload an image for model classification and an optional OpenCV lesion-candidate mask. If no candidate is confidently found, the boundary visualizations are withheld.
         </p>
 
         {error && (
@@ -103,7 +105,7 @@ export default function Assessment({ onAnalysisComplete, setActiveTab }) {
               </div>
               <div style={{ flex: 1, minWidth: "260px" }}>
                 <p style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "12px" }}>
-                  Analysis will generate the prediction and five visualizations automatically.
+                  Analysis includes the model result and image-processing previews. Segmentation images appear only when a candidate region is detected.
                 </p>
                 <button className="btn btn-primary" style={{ padding: "12px 24px", fontSize: "15px" }} onClick={runAnalysis} disabled={loading}>
                   {loading ? "Running ResNet18 & OpenCV analysis…" : "Analyze Skin Lesion"}

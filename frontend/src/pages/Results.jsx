@@ -1,10 +1,12 @@
 import React, { useState } from "react";
+import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
 export default function Results({ analysisData, setActiveTab }) {
   const [expandedImage, setExpandedImage] = useState(null);
   if (!analysisData || !analysisData.result) {
     return (
       <div>
+        <MedicalDisclaimer />
         <div className="card" style={{ textAlign: "center", padding: "48px 20px" }}>
           <div style={{ fontSize: "48px", marginBottom: "16px" }}>📋</div>
           <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "8px" }}>
@@ -27,36 +29,35 @@ export default function Results({ analysisData, setActiveTab }) {
   }
 
   const { result, originalImage } = analysisData;
-  const isLiveAR = analysisData.workflow === "live-ar";
-  const isUncertain = result.uncertain || result.predicted_category === "uncertain";
-  const isBenign = !isUncertain && result.predicted_category === "benign";
+  const isBenign = result.predicted_category === "benign";
   const overlay = result.ar_cv_overlay || {};
   const morphology = overlay.morphology || {};
   const visualizations = result.segmentation_visualizations;
-  const fiveCards = !isUncertain && visualizations ? [
+  const visualizationCards = visualizations ? [
     ["Original Image", visualizations.original_image],
     ["Preprocessed CNN Input", visualizations.preprocessed_cnn_input],
-    ["Heuristic Intensity-Candidate Mask", visualizations.binary_mask],
-    ["Approximate Candidate-Contour Overlay", visualizations.boundary_overlay],
-    ["Extracted Candidate Pixels", visualizations.segmented_image]
-  ] : null;
+    ["Lesion Segmentation Mask", visualizations.binary_mask],
+    ["Detected Lesion Contour", visualizations.boundary_overlay],
+    ["Final Segmentation Overlay", visualizations.segmented_image]
+  ].filter(([, imageUrl]) => Boolean(imageUrl)) : null;
 
   return (
     <div>
+      <MedicalDisclaimer />
 
       {/* Header Result Card */}
       <div
         className="card"
         style={{
-          borderLeft: `6px solid ${isUncertain ? "#64748b" : isBenign ? "var(--benign)" : "var(--malignant)"}`,
-          background: isUncertain ? "#f8fafc" : isBenign ? "#f0fdf4" : "#fef2f2",
+          borderLeft: `6px solid ${isBenign ? "var(--benign)" : "var(--malignant)"}`,
+          background: isBenign ? "#f0fdf4" : "#fef2f2",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "14px" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
-              <span className={`badge ${isUncertain ? "badge-secondary" : isBenign ? "badge-benign" : "badge-malignant"}`} style={{ fontSize: "14px", padding: "6px 14px" }}>
-                {isUncertain ? "UNCERTAIN" : result.predicted_category.toUpperCase()}
+              <span className={`badge ${isBenign ? "badge-benign" : "badge-malignant"}`} style={{ fontSize: "14px", padding: "6px 14px" }}>
+                {result.predicted_category.toUpperCase()}
               </span>
               <span style={{ fontSize: "14px", color: "var(--text-muted)", fontWeight: 600 }}>
                 Status: {result.prediction_status}
@@ -68,11 +69,6 @@ export default function Results({ analysisData, setActiveTab }) {
             <p style={{ fontSize: "14px", color: "var(--text-main)", maxWidth: "700px" }}>
               {result.assessment_summary?.clinical_description}
             </p>
-            {isUncertain && result.uncertainty_reason && (
-              <p style={{ fontSize: "13px", color: "#475569", marginTop: "8px", maxWidth: "700px" }}>
-                Uncertainty reason: {result.uncertainty_reason}
-              </p>
-            )}
           </div>
 
           <div
@@ -88,7 +84,7 @@ export default function Results({ analysisData, setActiveTab }) {
             <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--text-muted)", fontWeight: 700 }}>
               Model Confidence
             </div>
-            <div style={{ fontSize: "32px", fontWeight: 800, color: isUncertain ? "#64748b" : isBenign ? "var(--benign)" : "var(--malignant)" }}>
+            <div style={{ fontSize: "32px", fontWeight: 800, color: isBenign ? "var(--benign)" : "var(--malignant)" }}>
               {result.confidence_percentage}%
             </div>
             <div style={{ fontSize: "11px", color: "var(--text-light)" }}>Statistical Match</div>
@@ -96,11 +92,11 @@ export default function Results({ analysisData, setActiveTab }) {
         </div>
       </div>
 
-      {fiveCards ? (
+      {visualizationCards ? (
         <div className="card segmentation-card">
           <h3 className="card-title">Image Processing Visualizations</h3>
           <div className="segmentation-grid">
-            {fiveCards.map(([title, imageUrl]) => (
+            {visualizationCards.map(([title, imageUrl]) => (
               <button
                 type="button"
                 className="segmentation-item"
@@ -116,19 +112,20 @@ export default function Results({ analysisData, setActiveTab }) {
             ))}
           </div>
           <p className="segmentation-disclaimer">
-            These are conservative OpenCV intensity candidates, not model-generated disease segmentation or verified lesion boundaries. The classifier has no pixel-level localization output.
+            {visualizations.warning ||
+              "The mask and outline are OpenCV color-contrast candidates, not CNN-generated or clinically validated segmentation."}
           </p>
         </div>
       ) : (
         <div className="card">
-          <h3 className="card-title">{isLiveAR ? "Live AR Camera Sample" : "Segmentation Unavailable"}</h3>
+          <h3 className="card-title">
+            {analysisData.workflow === "live-ar" ? "Live AR Camera Sample" : "Lesion Segmentation Unavailable"}
+          </h3>
           <div style={{ width: "100%", maxWidth: "640px", height: "280px", margin: "0 auto", borderRadius: "8px", overflow: "hidden", background: "#0f172a", border: "1px solid var(--border)" }}>
-            <img src={originalImage} alt={isLiveAR ? "Camera frame used for the live model result" : "Image used for the model result"} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            <img src={originalImage} alt="Image used for the model result" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
           </div>
           <p className="segmentation-disclaimer">
-            {isLiveAR
-              ? "The classifier does not output lesion boundaries. No boundary is drawn over live camera frames."
-              : "No candidate mask is shown because the model result is uncertain or no visualization output is available."}
+            {overlay.segmentation_warning || "Live frames do not include stored mask images. The camera overlay is updated separately."}
           </p>
         </div>
       )}
@@ -185,12 +182,25 @@ export default function Results({ analysisData, setActiveTab }) {
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", fontSize: "14px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "6px" }}>
               <span style={{ color: "var(--text-muted)" }}>Candidate region:</span>
-              <strong>{overlay.detected ? "Heuristic candidate region" : "No reliable region detected"}</strong>
+              <strong>{overlay.detected ? "OpenCV contrast candidate" : "No reliable region detected"}</strong>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "6px" }}>
               <span style={{ color: "var(--text-muted)" }}>Candidate regions:</span>
               <strong>{morphology.candidate_regions ?? "Unavailable"}</strong>
             </div>
+            <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "6px" }}>
+              <span style={{ color: "var(--text-muted)" }}>Candidate area:</span>
+              <strong>{morphology.candidate_area_percentage != null ? `${morphology.candidate_area_percentage}%` : "Unavailable"}</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "6px" }}>
+              <span style={{ color: "var(--text-muted)" }}>Candidate box:</span>
+              <strong>{overlay.bounding_box
+                ? `${overlay.bounding_box.width} × ${overlay.bounding_box.height} px`
+                : "Unavailable"}</strong>
+            </div>
+            <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+              Candidate score is a heuristic, not model confidence or a diagnostic measure.
+            </p>
           </div>
         </div>
       </div>

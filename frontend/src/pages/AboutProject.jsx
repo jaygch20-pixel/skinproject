@@ -1,8 +1,10 @@
 import React from "react";
+import MedicalDisclaimer from "../components/MedicalDisclaimer";
 
 export default function AboutProject() {
   return (
     <div>
+      <MedicalDisclaimer />
 
       {/* Hero Header */}
       <div className="card">

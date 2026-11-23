@@ -10,7 +10,6 @@ import base64
 from PIL import Image
 import numpy as np
 import torch
-import cv2
 from torchvision import transforms
 
 ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
@@ -75,47 +74,3 @@ def get_preprocessed_preview(img: Image.Image) -> Image.Image:
     denormalized = tensor * std + mean
     pixels = (denormalized.clamp(0, 1).permute(1, 2, 0).numpy() * 255).astype(np.uint8)
     return Image.fromarray(pixels, mode="RGB")
-
-def assess_image_quality(img: Image.Image) -> dict:
-    """Return conservative checks for whether a frame is suitable for model screening."""
-    rgb = np.array(img.convert("RGB"))
-    if rgb.ndim != 3 or rgb.shape[0] < 64 or rgb.shape[1] < 64:
-        return {
-            "suitable": False,
-            "reason": "Image resolution is too small.",
-            "width": int(rgb.shape[1]) if rgb.ndim >= 2 else 0,
-            "height": int(rgb.shape[0]) if rgb.ndim >= 1 else 0
-        }
-
-    gray = np.mean(rgb, axis=2).astype(np.uint8)
-    laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-    blur_score = float(laplacian.var())
-    intensity_std = float(rgb.std())
-
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    saturation = hsv[:, :, 1]
-    skin_like = (
-        (hsv[:, :, 0] <= 25)
-        & (hsv[:, :, 0] >= 0)
-        & (saturation >= 20)
-        & (hsv[:, :, 2] >= 40)
-    )
-    skin_ratio = float(skin_like.mean())
-
-    reasons = []
-    if blur_score < 35:
-        reasons.append("Image appears blurred or out of focus.")
-    if intensity_std < 12:
-        reasons.append("Image has too little visual detail.")
-    if skin_ratio < 0.12:
-        reasons.append("No sufficient skin-like region was detected.")
-
-    return {
-        "suitable": len(reasons) == 0,
-        "reason": " ".join(reasons) if reasons else "Image quality checks passed.",
-        "width": int(rgb.shape[1]),
-        "height": int(rgb.shape[0]),
-        "blur_score": round(blur_score, 2),
-        "intensity_std": round(intensity_std, 2),
-        "skin_ratio": round(skin_ratio, 3)
-    }

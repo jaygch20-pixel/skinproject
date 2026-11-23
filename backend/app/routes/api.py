@@ -93,7 +93,9 @@ async def predict_image(request: Request):
     try:
         if content_type == "multipart/form-data":
             form = await request.form()
-            include_visualizations = str(form.get("include_visualizations", "true")).lower() == "true"
+            include_visualizations = (
+                str(form.get("include_visualizations", "true")).lower() == "true"
+            )
             upload = form.get("file")
             if not isinstance(upload, UploadFile):
                 raise HTTPException(status_code=400, detail="Multipart request must include an image file in the 'file' field.")
@@ -120,8 +122,7 @@ async def predict_image(request: Request):
             )
 
         result = prediction_service.predict(
-            image_input,
-            include_visualizations=include_visualizations
+            image_input, include_visualizations=include_visualizations
         )
         return JSONResponse(status_code=200, content=result)
     except HTTPException:
